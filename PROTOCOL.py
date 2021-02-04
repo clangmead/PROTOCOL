@@ -6,6 +6,7 @@ from scipy.spatial import ConvexHull
 import sys 
 import GPy
 import uuid
+import os 
 
 class HyperRect:  
     def __init__(self,xmin,xmax,rescale=False,num_decimals=None,scaler=None,disallowed_configs=None,data=None):
@@ -632,6 +633,9 @@ def initialize(logging_dir,continuous,batch_size,max_evals, \
 
     assert((xmin is not None and xmax is not None) or (data is not None)),"Please either specify a min and max X range or provide a data set as input"
 
+    if not os.path.exists(logging_dir):
+        os.makedirs(logging_dir)
+
     experiment = OptimizerHandler(
         max_evals=max_evals,
         M=M,
@@ -658,6 +662,12 @@ def initialize(logging_dir,continuous,batch_size,max_evals, \
         kernel = GPy.kern.src.sde_matern.sde_Matern52(input_dim=dim, variance=1., lengthscale=0.25)
         experiment.initialize_tree(kernel,X_min=xmin,X_max=xmax,num_decimals=num_decimals,dim=dim)
 
+    eval_data = np.loadtxt(logging_dir+"/initial_data.csv",delimiter=",")
+    if eval_data.shape == (dim,):
+        eval_data = np.array([eval_data])
+
+    return eval_data 
+
 def update_PROTOCOL(data_file,optimizer_file,y_updates=None):
 
     with open(optimizer_file,"rb") as experiment:
@@ -683,12 +693,20 @@ def update_PROTOCOL(data_file,optimizer_file,y_updates=None):
             experiment.initialize_tree(kernel,X=data,y=y_updates,dim=dim)
             experiment.PROTOCOL()
 
+    eval_fname = experiment.logging_dir+"{0}_{1}_evaluation_points.csv".format(str(experiment.num_iterations),str(experiment.num_evals))
+    eval_data = np.loadtxt(eval_fname,delimiter=",")
+    if eval_data.shape == (dim,):
+        eval_data = np.array([eval_data])
+
+    return eval_data 
+
+
 if __name__ == '__main__':
     
-    '''
+    
     ### EXAMPLE 1- initialize HPLC tree
     ### uses xmax and xmin initialization
-
+    '''
     #initial input space
     xmin = np.array([1,1,0.2,5,25,260])
     xmax = np.array([4,5,1.8,45,45,285])
@@ -701,7 +719,7 @@ if __name__ == '__main__':
     max_evals = 25
 
     #initialize the tree- will request evaluation of root node
-    initialize(logging_dir,continuous,batch_size,max_evals,
+    d1 = initialize(logging_dir,continuous,batch_size,max_evals,
         xmin=xmin,
         xmax=xmax,
         num_decimals=num_decimals
@@ -709,9 +727,8 @@ if __name__ == '__main__':
     
     #made up y update, just meant to be illustrative
     y_update = np.array([4.90])
-    update_PROTOCOL("test_log/initial_data.csv","test_log/initialize_optimizer.pkl",y_update)
+    d2 = update_PROTOCOL("test_log/initial_data.csv","test_log/initialize_optimizer.pkl",y_update)
     '''
-
     '''
     ### EXAMPLE 2- initialize MALDI-ToF data
     ### uses input data set to initialize
@@ -730,12 +747,12 @@ if __name__ == '__main__':
     data_params = data.loc[:,"Acc":"Shots_per_spectrum"].values
 
     #initialize the tree- will request evaluation of root node
-    initialize(logging_dir,continuous,batch_size,max_evals,
+    d1 = initialize(logging_dir,continuous,batch_size,max_evals,
         data=data_params
     )
 
     y_update = np.array([578.018])
-    update_PROTOCOL("test_log/initial_data.csv","test_log/initialize_optimizer.pkl",y_update)
+    d2 = update_PROTOCOL("test_log/initial_data.csv","test_log/initialize_optimizer.pkl",y_update)
     '''
 
 
