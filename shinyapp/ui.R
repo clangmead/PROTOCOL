@@ -35,7 +35,7 @@ body <- dashboardBody(
             box(
               conditionalPanel(condition = "input.analysis_type == 'initial'",
                                h3("Parameters setup"),
-                               numericInput("param_num","No. of parameters",value = 4, min=1L, max = 10L)
+                               numericInput("param_num","No. of parameters",value = 6, min=1L, max = 10L)
                                
                                
               )))
@@ -91,7 +91,8 @@ body <- dashboardBody(
                                       numericInput("batch_size","Batch size",value = 3))
               ),
               column(4,
-                     actionButton("run_opt","Run optimization")
+                     actionButton("run_opt","Run optimization"),
+                     actionButton("test_PROTOCOL","test protocol")
                      )
             ),
             DTOutput("new_params_tbl"),

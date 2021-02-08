@@ -19,25 +19,26 @@ opt_one_round_sequential <- function(DT_bounds, DT_history, acqs){
   # Try each acquisition function
   next_params <- data.frame(matrix(nrow = 0, ncol = length(params_names)))
   for(acq in acqs){
-  
-  if(acq %in% c("ei","ucb","poi")){
-    # GP regression using GPfit package
-    GP <- GP_fit(Par_Mat[unique_rounds_id,], value_vec[unique_rounds_id], corr = list(type="exponential", power = 2))
-
-    # Get next parameter 
-    y_max <- max(value_vec)
-    next_one <- Utility_Max(DT_bounds, 
-                            GP, 
-                            acq = acq,
-                            y_max ,
-                            kappa = 2.576,
-                            eps = 0.0)
-    next_params <- rbind(next_params,    Min_Max_Inverse_Scale_Vec(next_one, lower = DT_bounds[,Lower], upper = DT_bounds[,Upper])
-)
     
-  }else if (acq == "TS"){
-    print("TS sequential")
-  }
+    if(acq %in% c("ei","ucb","poi")){
+      # GP regression using GPfit package
+      GP <- GP_fit(Par_Mat[unique_rounds_id,], value_vec[unique_rounds_id], corr = list(type="exponential", power = 2))
+      
+      # Get next parameter 
+      y_max <- max(value_vec)
+      next_one <- Utility_Max(DT_bounds, 
+                              GP, 
+                              acq = acq,
+                              y_max ,
+                              kappa = 2.576,
+                              eps = 0.0)
+      print(next_one)
+      next_params <- rbind(next_params,    Min_Max_Inverse_Scale_Vec(next_one, lower = DT_bounds[,Lower], upper = DT_bounds[,Upper])
+      )
+      
+    }else if (acq == "TS"){
+      print("TS sequential")
+    }
   }
   colnames(next_params) <- params_names
   

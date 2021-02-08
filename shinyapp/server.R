@@ -6,7 +6,7 @@
 # 
 #    http://shiny.rstudio.com/
 #
-setwd("D:/20Fall/Thesis/shiny/Bayes_opt")
+# setwd("D:/20Fall/Thesis/shiny/Bayes_opt")
 library(shiny)
 library(shinydashboard)
 library(readxl)
@@ -22,16 +22,19 @@ library(dplyr)
 library(reticulate)
 library(shinyjqui)
 source("utils.R")
+reticulate::use_condaenv("ml",required = TRUE)
+source_python("../PROTOCOL.py")
 
 
 shinyServer(function(input, output,session) {
   output$params_input <- renderUI({
     numParams <- input$param_num
     # Create a panel for each parameter
-    maldi_params <- c("Acc","Grid_Pct","Delay","Shots_per_spectrum")
+    # maldi_params <- c("Acc","Grid_Pct","Delay","Shots_per_spectrum")
+    hplc_params <- c("Flow_rate","Inj_col","Col_temp","Abs_wvl","Sol_ratio","Grad")
     lapply(1:numParams, function(i){
       box( title = paste0("Param ",i), width = 3, solidHeader = T, 
-           textInput(paste0("param_name_",i),paste0("Param ",i," label"),maldi_params[i]),
+           textInput(paste0("param_name_",i),paste0("Param ",i," label"),hplc_params[i]),
         radioButtons(paste0("param_type_",i),paste0("Param ",i," type"),
                      choices = c("discrete"=1,"continous"=2),
                      selected = 1
@@ -47,18 +50,9 @@ shinyServer(function(input, output,session) {
                                           ,
                                           conditionalPanel(
                                             condition = paste0("input.ordinal_lbls_",i),
-                                            # textInput("ha","haha")
                                             orderInput(paste0("order_",i),paste0("Order the labels"),items = NULL, width = '300px')
                                                              
                                           )
-                                          # ,
-                                          # 
-                                          # numericInput(paste0("lb_",i),paste0("Lower bound of the ",i," th param"),
-                                          #              value = 0L),
-                                          # numericInput(paste0("ub_",i),paste0("Upper bound of the ",i," th param"),
-                                          #              value = 100L),
-                                          # numericInput(paste0("step_",i), paste0("Step size of the ",i," th param"),
-                                          #              value = 1L)
                                           ),
                          #If Noninal
                          conditionalPanel(condition = paste0("input.discrete_type_",i,"==2"),
@@ -66,14 +60,13 @@ shinyServer(function(input, output,session) {
                                           )
           
         ),
-        
-        conditionalPanel(condition = paste0("input.param_type_",i,"==2"),#if continuous, set lower and upper bound
-                          # h3("gagag")
+        #if continuous, set lower and upper bound
+        conditionalPanel(condition = paste0("input.param_type_",i,"==2"),
                           wellPanel(
                             numericInput(paste0("lb_",i),paste0("Lower bound of the ",i," th param"),
-                                         value = 0),
+                                         value = 0.0),
                             numericInput(paste0("ub_",i),paste0("Upper bound of the ",i," th param"),
-                                         value = 100)
+                                         value = 10.0)
 
                          ))
       )
@@ -133,43 +126,49 @@ shinyServer(function(input, output,session) {
   
   #----------------------- Generate search bounds -----------------
   searchbound <- reactive({
-    search_bound <- list()
+    search_bound <- as.data.frame(matrix(nrow = num_params(),ncol = 3))
     for (i in 1:num_params()) {
-      #Ordinal
-      if(eval(parse(text = paste0("input$discrete_type_",i,"==1")))){
-        search_bound <- list.append(search_bound,c(1L,ordinal_lengths()[[i]]))
+      #Continuous
+      if(eval(parse(text = paste0("input$param_type_",i,"==2")))){
+        # Set lower bound
+        search_bound[i,1] <- eval(parse(text = paste0("input$lb_",i)))
+        search_bound[i,2] <- eval(parse(text = paste0("input$ub_",i)))
+        search_bound[i,3] <- "numeric"
       }else{
-        search_bound <- list.append(search_bound, c(eval(parse(text = paste0("input$lb_",i))),eval(parse(text = paste0("input$ub_",i)))))
-      }
+        #Ordinal
+        if(eval(parse(text = paste0("input$discrete_type_",i,"==1")))){
+          search_bound[i,1] <- 1L
+          search_bound[i,2] <- ordinal_lengths()[[i]]
+          search_bound[i,3] <- "integer"
+        }
+      }     
     }
     search_bound
   })
+  
   #--------------------------------------------------------------------
   
   
   #------------------------ When parameters are confirmed --------------
-  DT_bounds <- reactive({
+  
+  DT_bounds <- reactiveVal()
+  
+  observeEvent(input$param_confirm,{
     search_bound <- searchbound()
     params_names <- c()
+    
     for (i in 1:num_params()) {
       params_names <- c(params_names, eval(parse(text = paste0("input$param_name_",i))))
     }
-
-    names(search_bound) <- params_names
-    DT_bounds <- data.table(
-      Parameter = names(search_bound),
-      Lower = sapply(search_bound, extract2, 1),
-      Upper = sapply(search_bound, extract2, 2),
-      Type = sapply(search_bound, class))
     
-    DT_bounds
-  })
-  #--------------------------------------------------------------
-  
-  #------------------ When parameters are confirmed, jump to next page --------------
-  observeEvent(input$param_confirm,{
-        # output$params <- renderDataTable(DT_bounds())
-        updateTabItems(session, "tabs", "exp")
+
+    DT_bounds_df <- cbind(params_names, search_bound)
+    colnames(DT_bounds_df) <- c("Parameter","Lower","Upper","Type")
+    DT_bounds(as.data.table(DT_bounds_df))
+    print(DT_bounds())
+    
+    updateTabItems(session, "tabs", "exp")
+    
   })
 
 
@@ -231,23 +230,52 @@ shinyServer(function(input, output,session) {
   
   new_par <- reactiveVal()
   
+  ##############################
+  observeEvent(input$test_PROTOCOL,{
+    params_names <- c()
+    for (i in 1:num_params()) {
+      params_names <- c(params_names, eval(parse(text = paste0("input$param_name_",i))))
+    }
+    
+    logging_dir <- "test_log/"
+    continous <- FALSE
+    batch_size <- 3
+    max_evals <- 25
+    xmin <- np_array(DT_bounds()[,Lower])
+    # print(class(xmin))
+    xmax <- np_array(DT_bounds()[,Upper])
+    par_types <- DT_bounds()[,Type]
+    num_decimals <- ifelse(par_types == "integer",0L,2L)
+    data <- DT_hist()
+    d1 <- initialize(logging_dir, continous, batch_size, max_evals,
+                     xmin = xmin, xmax = xmax,
+                     num_decimals = num_decimals)
+    colnames(d1) <- params_names
+    df <- cbind(d1, objective=rep(0, nrow(d1)))
+    print(df)
+    new_par(df)
+  })
+  ##############################
+  
   observeEvent(input$run_opt,{
     print(input$acq_type_multi)
     # Get all selected acquisition funcs
     acqs <- input$acq_type_multi
     q <- input$batch_size
-    
     if (input$opt_mode == 1){# Sequential mode
       print("sequential")
+
       new_params <- opt_one_round_sequential(DT_bounds(), DT_hist(),acqs)
     }else if(input$opt_mode == 2){# Batch mode
+      print("hi")
+
       new_params <- opt_one_round_batch_multi_acq(DT_bounds(),DT_hist(),q,1.3,acqs)
     }
     print(new_params)
     
     # Encode ordinal parameters
     for(i in c(1:num_params())){
-      if(eval(parse(text = paste0("input$discrete_type_",i,"==1")))){
+      if(eval(parse(text = paste0("input$param_type_",i,"==1")))&eval(parse(text = paste0("input$discrete_type_",i,"==1")))){
         new_params[,i] <- decode_ord_param(new_params[,i],eval(parse(text = paste0("input$order_",i))))
       }
     }
@@ -278,6 +306,11 @@ shinyServer(function(input, output,session) {
                output$new_params_tbl <-  renderDT(new_par(), editable="cell")
                
                )
+  
+  observeEvent(input$test_PROTOCOL,
+               output$new_params_tbl <-  renderDT(new_par(), editable="cell")
+               
+  )
   
   # Update evaluated experiments
   observeEvent(input$update,{
