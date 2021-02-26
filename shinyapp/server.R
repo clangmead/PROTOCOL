@@ -27,11 +27,12 @@ source_python("../PROTOCOL.py")
 
 
 shinyServer(function(input, output,session) {
+  
   output$params_input <- renderUI({
     numParams <- input$param_num
     # Create a panel for each parameter
     # maldi_params <- c("Acc","Grid_Pct","Delay","Shots_per_spectrum")
-    hplc_params <- c("Flow_rate","Inj_col","Col_temp","Abs_wvl","Sol_ratio","Grad")
+    hplc_params <- c("Sol_ratio","Grad","Flow_rate","Inj_col","Col_temp","Abs_wvl")
     lapply(1:numParams, function(i){
       box( title = paste0("Param ",i), width = 3, solidHeader = T, 
            textInput(paste0("param_name_",i),paste0("Param ",i," label"),hplc_params[i]),
@@ -90,12 +91,10 @@ shinyServer(function(input, output,session) {
     req(num_params())
     req(input$ordinal_lbls_1)
 
-    # print(num_params())
     res <- lapply(1:num_params(), function(i){
       string <- eval(parse(text = paste0("input$ordinal_lbls_",i)))
       unlist(strsplit(string, ","))
     })
-    # print(res)
     res
   })
   
@@ -200,8 +199,6 @@ shinyServer(function(input, output,session) {
     # Encode ordinal params
     for(i in 1: num_params()){
       if(eval(parse(text = paste0("input$discrete_type_",i,"==1")))){
-        # print(i)
-        # print(eval(parse(text = paste0("input$order_",i))))
         DT_hist[,i] <- encode_ord_param(DT_hist[,i],eval(parse(text = paste0("input$order_",i))))
       }
     }
@@ -223,6 +220,39 @@ shinyServer(function(input, output,session) {
       )
       output$exp_hist_tbl <- renderDataTable(DT_hist_show())
     }
+
+  })
+  
+  observe({input$prev_data
+    input$update
+    if(input$prev_data == "No" && input$update == 1){
+      output$exp_hist <- renderUI(
+        h3("Historical experiments")
+      )
+      output$exp_hist_tbl <- renderDataTable(DT_hist_show())
+    }
+  }
+
+  )
+  
+  observeEvent(input$suggest_param,{
+    
+    params_names <- c()
+    for (i in 1:num_params()) {
+      params_names <- c(params_names, eval(parse(text = paste0("input$param_name_",i))))
+    }
+    
+    output$sgt_exps <- renderUI(
+      h3(paste0(input$no_sgst_param," suggested initial parameters"))
+    )
+    suggested_df <- as.data.frame(matrix(nrow = 0, ncol = num_params()))
+    for(i in c(1:input$no_sgst_param)){
+      suggested_df <- rbind(suggested_df, extract_one_set_of_params(DT_bounds()))
+    }
+    colnames(suggested_df) <- params_names
+    # output$sgt_exps_tbl <- renderDataTable(suggested_df)
+    output$exp_hist_tbl <- renderDataTable(suggested_df)
+    
   })
   #----------------------------------------------------
   
@@ -242,15 +272,22 @@ shinyServer(function(input, output,session) {
     batch_size <- 3
     max_evals <- 25
     xmin <- np_array(DT_bounds()[,Lower])
-    # print(class(xmin))
     xmax <- np_array(DT_bounds()[,Upper])
     par_types <- DT_bounds()[,Type]
     num_decimals <- ifelse(par_types == "integer",0L,2L)
     data <- DT_hist()
-    d1 <- initialize(logging_dir, continous, batch_size, max_evals,
+    d1 <- as.data.frame(initialize(logging_dir, continous, batch_size, max_evals,
                      xmin = xmin, xmax = xmax,
-                     num_decimals = num_decimals)
+                     num_decimals = num_decimals))
     colnames(d1) <- params_names
+    
+    # Encode ordinal parameters
+    for(i in c(1:num_params())){
+      if(eval(parse(text = paste0("input$param_type_",i,"==1")))&eval(parse(text = paste0("input$discrete_type_",i,"==1")))){
+        d1[,i] <- decode_ord_param(d1[,i],eval(parse(text = paste0("input$order_",i))))
+      }
+    }
+    # Add objective column
     df <- cbind(d1, objective=rep(0, nrow(d1)))
     print(df)
     new_par(df)
@@ -258,9 +295,18 @@ shinyServer(function(input, output,session) {
   ##############################
   
   observeEvent(input$run_opt,{
-    print(input$acq_type_multi)
+    # print(input$acq_type_multi)
+    # req(DT_hist(), input$opt_mode, input$acq_type_multi)
+    # validate(need(nrow(DT_hist()<3), "Please upload historical experiments or get suggested initial experiments!"))
     # Get all selected acquisition funcs
-    acqs <- input$acq_type_multi
+    acqs <- reactive({
+      acq_selected <- !is.null(input$acq_type_multi)
+      feedbackDanger("acq_type_multi", !acq_selected, "Please selected acquisition function(s)")
+      req(acq_selected, cancelOutput = TRUE)
+      input$acq_type_multi
+      
+    })
+    req(nrow(DT_hist()>1), input$opt_mode)
     q <- input$batch_size
     if (input$opt_mode == 1){# Sequential mode
       print("sequential")
@@ -317,7 +363,12 @@ shinyServer(function(input, output,session) {
     DT_history <- DT_hist_show()
     new_recs <- selected_new_pars()
     # update front-end df
-    DT_hist_show(rbind(DT_history,new_recs[,-(ncol(new_recs)-1)]))
+    if(!is.null(DT_history)){
+      DT_hist_show(rbind(DT_history,new_recs[,-(ncol(new_recs)-1)]))
+      
+    }else{
+      DT_hist_show(new_recs)
+    }
   })
   #--------------------------------------------------------------
   

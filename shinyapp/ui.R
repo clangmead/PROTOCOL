@@ -8,6 +8,7 @@
 #
 library(shiny)
 library(shinydashboard)
+library(shinyFeedback)
 library(sortable)
 library(DT)
 
@@ -22,6 +23,7 @@ sideBar <- dashboardSidebar(
 
 
 body <- dashboardBody(
+  useShinyFeedback(),
   tabItems(
     tabItem(tabName = "start",
             fluidRow(box(h3("Job type"),
@@ -60,10 +62,22 @@ body <- dashboardBody(
     
     
     tabItem(tabName = "exp",
-            fileInput("prev_exps",
-                      "Upload previous experiments",
-                      multiple = FALSE),
-            actionButton("exp_upload_confirm"," Upload"),
+            selectInput("prev_data","Do you want to upload previous experiments?",c("Yes","No")),
+            conditionalPanel("input.prev_data == 'Yes'",
+                             fileInput("prev_exps",
+                                       "Upload previous experiments",
+                                       multiple = FALSE),
+                             actionButton("exp_upload_confirm"," Upload")
+                             ),
+            conditionalPanel("input.prev_data == 'No'",
+                             p("You only need to change this value if you want to include algorithms other than PROTOCOL"),
+                             numericInput(inputId = "no_sgst_param",
+                                          label = "No. of initial parameter sets", 
+                                          value = 1,min = 1, max = 10, step = 1),
+                             actionButton("suggest_param"," Get suggested parameters")),
+            
+            uiOutput("sgt_exps"),
+            dataTableOutput("sgt_exps_tbl"),
             uiOutput("exp_hist"),
             dataTableOutput("exp_hist_tbl"),
             h3("Optimization setup"),
