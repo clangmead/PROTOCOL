@@ -685,7 +685,7 @@ def update_PROTOCOL(data_file,optimizer_file,y_updates=None):
         if experiment.initialized:
             assert y_updates is not None 
             y_updates = np.array(y_updates).reshape(-1,1)
-            experiment.update(data,y) 
+            experiment.update(data,y_updates) 
             experiment.PROTOCOL()
         else:
             kernel = GPy.kern.src.sde_matern.sde_Matern52(input_dim=dim, variance=1., lengthscale=0.25)
@@ -706,7 +706,7 @@ if __name__ == '__main__':
     
     ### EXAMPLE 1- initialize HPLC tree
     ### uses xmax and xmin initialization
-    '''
+    
     #initial input space
     xmin = np.array([1,1,0.2,5,25,260])
     xmax = np.array([4,5,1.8,45,45,285])
@@ -728,7 +728,9 @@ if __name__ == '__main__':
     #made up y update, just meant to be illustrative
     y_update = np.array([4.90])
     d2 = update_PROTOCOL("test_log/initial_data.csv","test_log/initialize_optimizer.pkl",y_update)
-    '''
+    y_update2 = np.array([3,5,0])
+    d3 = update_PROTOCOL("test_log/1_1_evaluation_points.csv","test_log/1_1_optimizer.pkl",y_update2)
+    
     '''
     ### EXAMPLE 2- initialize MALDI-ToF data
     ### uses input data set to initialize
