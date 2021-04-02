@@ -295,6 +295,7 @@ class OptimizerHandler:
         loc = self.logging_dir
         obj_fname = loc+"{0}_{1}_optimizer.pkl".format(str(self.num_iterations),str(self.num_evals))
         eval_fname = loc+"{0}_{1}_evaluation_points.csv".format(str(self.num_iterations),str(self.num_evals))
+        history_fname = loc+"history.csv"
 
         if self.num_evals == self.max_evals:
             self.ns.append(self.num_evals)
@@ -345,11 +346,17 @@ class OptimizerHandler:
         print()
         print(np.array(self.centers_to_eval))
         print()
-        print("The data points to evaluate have been save to {}".format(eval_fname))
+        print("The data points to evaluate have been saved to {}".format(eval_fname))
         print("Please obtain ground truth labels for these data points.")
         print("Afterwards, load the optimizer save state and run update with the ground truth labels.")
         print("Then, run the next iteration if desired.")
         print()
+
+        print("A log of the history up to this point has been written to {}".format(history_fname))
+        print("The final column corresponds to the label, and the preceeding columns correspond to each parameter")
+
+        history = np.hstack((self.scaler.inverse_transform(self.X_evaluated),self.y_evaluated))
+        np.savetxt(history_fname,history,delimiter=",")
         
         return self.T, self.gp
 
@@ -359,10 +366,10 @@ class OptimizerHandler:
         
         var, ls, noise = self.params 
         self.kernel = GPy.kern.src.sde_matern.sde_Matern52(input_dim=self.dim, variance=var, lengthscale=ls)
-        self.y_evaluated = np.vstack((self.y_evaluated,y_update.reshape(-1,1)))
+        self.y_evaluated = y_update #np.vstack((self.y_evaluated,y_update.reshape(-1,1)))
 
         if self.continuous:
-            self.X_evaluated = np.vstack((self.X_evaluated,X_update))
+            self.X_evaluated = self.X_evaluated #np.vstack((self.X_evaluated,X_update))
             for node in self.T.tree.nodes:
                 for i,x in enumerate(X_update):
                     if np.array_equal(node.center.flatten(),x):
@@ -374,7 +381,7 @@ class OptimizerHandler:
                 X_update = self.scaler.transform(X_update)
             except:
                 X_update = self.scaler.transform(X_update.reshape(1,-1))
-            self.X_evaluated = np.vstack((self.X_evaluated,X_update))
+            self.X_evaluated = X_update #np.vstack((self.X_evaluated,X_update))
             for node in self.T.tree.nodes:
                 for i,x in enumerate(X_update):
                     if np.array_equal(node.closest_to_center.flatten(),x):
@@ -668,34 +675,29 @@ def initialize(logging_dir,continuous,batch_size,max_evals, \
 
     return eval_data 
 
-def update_PROTOCOL(data_file,optimizer_file,y_updates=None):
+def update_PROTOCOL(X,y,optimizer_file,batch_size=None):
 
     with open(optimizer_file,"rb") as experiment:
         experiment = pickle.load(experiment)
 
-    data = np.loadtxt(data_file,delimiter=",")
-    dim = experiment.dim
-    if data.shape == (dim,):
-        data = data.reshape(1,-1)
+    if batch_size is not None:
+        experiment.batch_size = batch_size
 
-    if experiment.continuous:
-        y_updates = experiment.func(data)
-        experiment.update(data,y_updates)
+    if experiment.initialized:
+        #assert y_updates is not None 
+        #y_updates = np.array(y_updates).reshape(-1,1)
+        experiment.update(X,y) 
+        experiment.PROTOCOL()
     else:
-        if experiment.initialized:
-            assert y_updates is not None 
-            y_updates = np.array(y_updates).reshape(-1,1)
-            experiment.update(data,y_updates) 
-            experiment.PROTOCOL()
-        else:
-            kernel = GPy.kern.src.sde_matern.sde_Matern52(input_dim=dim, variance=1., lengthscale=0.25)
-            assert y_updates is not None 
-            experiment.initialize_tree(kernel,X=data,y=y_updates,dim=dim)
-            experiment.PROTOCOL()
-
+        kernel = GPy.kern.src.sde_matern.sde_Matern52(input_dim=experiment.dim, variance=1., lengthscale=0.25)
+       # assert y_updates is not None 
+        experiment.initialize_tree(kernel,X=X,y=y,dim=experiment.dim)
+        experiment.PROTOCOL()
+    
+    #obtain the data points just requested by the algorithm
     eval_fname = experiment.logging_dir+"{0}_{1}_evaluation_points.csv".format(str(experiment.num_iterations),str(experiment.num_evals))
     eval_data = np.loadtxt(eval_fname,delimiter=",")
-    if eval_data.shape == (dim,):
+    if eval_data.shape == (experiment.dim,):
         eval_data = np.array([eval_data])
 
     return eval_data 
@@ -726,36 +728,26 @@ if __name__ == '__main__':
     )
     
     #made up y update, just meant to be illustrative
-    y_update = np.array([4.90])
-    d2 = update_PROTOCOL("test_log/initial_data.csv","test_log/initialize_optimizer.pkl",y_update)
-    y_update2 = np.array([3,5,0])
-    d3 = update_PROTOCOL("test_log/1_1_evaluation_points.csv","test_log/1_1_optimizer.pkl",y_update2)
+    y1 = np.array([4.90])
     
-    '''
-    ### EXAMPLE 2- initialize MALDI-ToF data
-    ### uses input data set to initialize
+    #update PROTOCOL by passing the X array, y array, and path to the optimizer.  You may specify a batch size.  
+    #The X and y arrays should have all data points previously evaluated
+    #The optimizer was made by the initialize function.
+    d2 = update_PROTOCOL(d1,y1,"test_log/initialize_optimizer.pkl",batch_size=batch_size)
 
-    import pandas as pd 
+    #made up second y update, just meant to be illustrative
+    y_requested = np.array([3,5,0]).reshape(-1,1)
+ 
+    #This time (and all times after the initial update), we refer to a history file made by PROTOCOL to obtain previously evaluated points.
+    #make sure the requested data points and their y values are index-matched
+    data = np.loadtxt("test_log/history.csv",delimiter=",").reshape(1,-1)
+    x2 = np.vstack((data[:,:-1],d2))
+    y2 = np.vstack((data[:,-1],y_requested))
 
-    #intial input values
-    logging_dir = "test_log/"
-    continuous = False 
-    batch_size = 4
-    max_evals = 25
-    fname = "../../MALDI-ToF runs/Data_CT_v2.xlsx"
+    #Update PROTOCOL as before.  Make sure to refer to correct X and y arrays, as well as the most recent optimizer.
+    d3 = update_PROTOCOL(x2,y2,"test_log/1_1_optimizer.pkl",batch_size=batch_size)
+    
 
-    #load data
-    data = pd.read_excel(fname,index_col=0)
-    data_params = data.loc[:,"Acc":"Shots_per_spectrum"].values
-
-    #initialize the tree- will request evaluation of root node
-    d1 = initialize(logging_dir,continuous,batch_size,max_evals,
-        data=data_params
-    )
-
-    y_update = np.array([578.018])
-    d2 = update_PROTOCOL("test_log/initial_data.csv","test_log/initialize_optimizer.pkl",y_update)
-    '''
 
 
 
