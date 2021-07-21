@@ -92,7 +92,7 @@ body <- dashboardBody(
               #        ),
               column(4,
                      checkboxGroupInput("acq_type_multi", "Batch Selection Methods",
-                                        choices = c("PROTOTOL" = "ptl",
+                                        choices = c("PROTOCOL" = "ptl",
                                                     "Expected Improvement" = "ei",
                                                     "Upper Confidence Bound"="ucb",
                                                     "Possibility of Improvement"= "poi",
