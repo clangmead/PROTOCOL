@@ -301,7 +301,7 @@ shinyServer(function(input, output,session) {
     # Get all selected acquisition funcs
     acqs <- reactive({
       acq_selected <- !is.null(input$acq_type_multi)
-      feedbackDanger("acq_type_multi", !acq_selected, "Please selected acquisition function(s)")
+      feedbackDanger("acq_type_multi", !acq_selected, "Please select acquisition function(s)")
       req(acq_selected, cancelOutput = TRUE)
       input$acq_type_multi
       
